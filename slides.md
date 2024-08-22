@@ -41,9 +41,9 @@ Notes:
         - It's where I've spent the most time so far.
     - I wanted to show some procedures for other temporal operations, like inner join, outer join, semijoin, and antijoin.
         - But this talk is already too long, so I left that out.
-        - Still, the benchmark I build includes those things, and I'll touch on them.
+        - Still, the benchmark I built includes those things, and I'll touch on them.
         - As far as I know no one has ever published a temporal benchmark, so I'm trying to cover all the procedures you might want to do.
-        - You can use this to contruct a broader benchmark that is representative of a real application.
+        - You can use this to construct a broader benchmark that is representative of a real application.
     - I also want to talk about things I've done wrong, and my steps toward a benchmarking methodology.
 - This is all still a work in progress, so I'm hoping you can all offer some of your own wisdom to improve what I'm doing.
 
@@ -56,7 +56,8 @@ Notes:
 Notes:
 
 - Benchbase is a tool from Carneige-Mellon University for benchmarking databases.
-- It was originally called OLTP-Bench, developed for a paper published in 2013.
+    - It was originally called OLTP-Bench, developed for a paper published in 2013.
+    - I get the impression CockroachDB sort of maintains it now. Is that correct?
 - It comes with about 20 benchmarks with support for nearly that many database systems.
 - So it solves an `n*m` problem because now you can run any benchmark on any database---in theory anyway.
 - You write each benchmark with standards-compliant SQL, and then you can write database-specific overrides as necessary.
@@ -193,6 +194,9 @@ Notes:
     - There is a benchmarking talk where Melanie Plageman advises running `initdb` before every benchmark,
       because apparently initializing your first WAL files is a decent amount of work,
       and if you don't always include it your runs won't be comparable.
+- Oh btw, whenever you say `clean` it blows away all your results!
+  I've lost several files I wanted to keep because of that.
+  I have a script to run a benchmark and immediately copy the files.
 
 
 
@@ -217,7 +221,7 @@ Notes:
     - The old github repo has a wiki page that covers some of it, but it wasn't copied over when the project was renamed.
     - I learned a lot by reading the OLTP Bench paper.
         - There is tons of power you can harness with this file.
-    - I learned a lot by reading the config parsing code.
+    - I also learned a lot by reading the config parsing code.
     - I'll spend some time here because the project deserves a more complete reference.
 - Reconnect on failure: I haven't really looked at this. Does a failure make it just stop?
 - Transaction isolation level
@@ -237,7 +241,8 @@ Notes:
 Notes:
 
 - `scalefactor` is for the loading step: in other words the initial data.
-  - A benchmark can do whatever it wants with this, but basically it's a multipler.
+  - When I started, it was hard to separate the loading knobs from the real benchmark knobs.
+  - Each benchmark can do whatever it wants with this, but basically it's a multipler.
       - For Twitter, at `scalefactor` 1 you get 500 users and 20,000 tweets.
       - For TPCC the `scaleFactor` is the number of warehouses.
 - `batchsize` is also just for loading, and it lets the benchmark group `INSERT`s to cut down on overhead.
@@ -461,21 +466,49 @@ Notes:
 - The `summary` file gives you total results.
 
 
-# TODO: monitor-type=advanced
 
-
-# More CLUI Options
+# Advanced Monitoring
 
 ```console
---sample
 --monitor-type=advanced
 --interval-monitor=1000
+```
+
+Notes:
+
+- You can use these other options to get "advanced monitoring" files.
+- They land in the `monitor` subdirectory of your `results` folder.
+- This is only enabled for Postgres and I think I saw something about MS SQL Server.
+
+
+
+# Advanced Monitoring
+
+```console[|5-7|8]
+paul@tal:~/src/benchbase$ cut -d, -f1,2,6,9 \
+> results/monitor/repeated_query_event_601.csv |
+> sed -n '1p; 2p; 3p; $p' |
+> csvtool readable -
+QueryId        Instant                        total_exec_time    execution_count
+insertPosition 2024-08-12T05:37:12.111499381Z 187.07314000000008 494
+deleteEmployee 2024-08-12T05:37:12.111499381Z 187.07314000000008 494
+updatePosition 2024-08-12T05:47:11.112707430Z 187.07314000000008 494
+```
+<!-- .element class="code-slightly-small" -->
+
+Notes:
+
+- Basically it queries `pg_stat_statements` again & again.
+- I feel like something is broken here, because for me every row was identical.
+    - Even for a 10 minute run:
+        - The total execution time never went up.
+        - The execution count never went up.
 
 
 
 # Benchmark Architecture
 
-```console
+```console[|6|8|7|9|12|11]
 paul@tal:~/src/benchbase$ ls -1 \
 > src/main/java/com/oltpbenchmark/benchmarks/temporal/
 DateRange.java
@@ -496,7 +529,7 @@ Notes:
   - In fact this is more than you need.
   - `TemporalBenchmark` is like the entry point.
   - `TemporalConstants` defines things like how many employees to start with.
-  - `TemporalConfig` lets you include custom XML elements in the config file, if you want to tune things.
+  - `TemporalConfiguration` lets you include custom XML elements in the config file, if you want to tune things.
     - For instance I provide some knobs for the timestamp targeted by employee & position updates & deletes.
   - `TemporalLoader` does the initial data load.
   - `procedures` has individual classes for each procedure type, as I mentioned before.
@@ -508,7 +541,7 @@ Notes:
 
 # `TemporalWorker`
 
-```java [|2-3|6|14|8-9]
+```java [|2-3|6|7-14|8-9]
 @Override
 protected TransactionStatus executeWork(
   Connection conn, TransactionType nextTrans)
@@ -535,7 +568,14 @@ Notes:
 - This `executeWork` method gets calls with each item from the queue.
 - It runs the appropriate procedure.
 - Here are a couple examples, where I'm picking random ids and start/end times.
+    - Benchbase has a lot of random utilities built in.
+        - Uniform distribution of course
+        - Gaussian distribution (i.e. a normal curve 2 stddev around a mean)
+        - Zipfian distribution which is kind of like a power law.
+        - I wound up using both of those to get (hopefully) more realistic data.
 - I'm referencing both `TemporalConstants` and the `config` object, which is a `TemporalConfiguration` instance.
+    - Some knobs I exposed were how wide to make the time interval when updating/deleting something.
+        - This lets you control how often a foreign key is valid vs invalid.
 
 
 
@@ -569,8 +609,9 @@ public class InsertPosition extends Procedure {
 Notes:
 
 - Here is a procedure example.
+- It has the SQL you want to run.
 - What you call this variable is important.
-- Benchbase will use some reflection (I guess) and treats this as a "query id" in your results files.
+- Benchbase will use some reflection (I guess) and treats this as a "query id" in your advanced monitoring files. (The ones we just saw.)
 
 
 
@@ -598,7 +639,7 @@ Notes:
 
 # Temporal DDL
 
-```sql
+```sql[|7-13|15-23|20|21-22]
 DROP EXTENSION IF EXISTS btree_gist CASCADE;
 DROP TABLE IF EXISTS employees CASCADE;
 DROP TABLE IF EXISTS positions CASCADE;
@@ -862,9 +903,10 @@ Notes:
 - Here is the query plan for the `range_agg`.
 - It's really simple!
 - It uses the GiST index.
-- I'm not sure why this is an Index Scan not an Index Only Scan.
-    - I guess it's because of locking:
-      If I omit `FOR KEY SHARE` then it's Index Only.
+- Notice this is an Index Scan not an Index Only Scan.
+    - We have to get the heap tuples because of locking:
+      If you omit `FOR KEY SHARE` then it's Index Only.
+    - All the implementations will share this.
 - I've left off costs and not shown actual times, just to make it fit on the slide.
 
 
@@ -965,6 +1007,9 @@ Notes:
 - I was right!
 - At this point I offered to give this talk.
 - Then I started having doubts.
+    - This was just run on my laptop.
+    - You can see they are nearly all the same.
+    - Maybe it's just noise?
 - Okay let's at least look at the latencies:
 
 
@@ -1147,7 +1192,14 @@ Notes:
 	- But I added a preprocessor `#define` to un-static and un-inline it, so we could trace it.
 	- So for each query, we count how many times we called ExecProcNode.
 	- Then we build a histogram from those counts.
-- This is overkill really, but it's easy and it confirms what `EXPLAIN ANALYZE` is telling us.
+- This is a really poor metric, to be honest.
+    - We're looking for a proxy of "How much work is the database doing?"
+      and we could measure that directly e.g. by CPU or disk I/Os.
+    - Different nodes do different amounts of work.
+    - But it's easy and it's nice to confirm what `EXPLAIN ANALYZE` is telling us.
+        - Sometimes it's nice to ask the same question but from a different angle, and just make sure the results agree.
+        - And the point isn't it compare implementations,
+          but to compare EXISTS to itself, with mostly-valid vs half-invalid records.
 
 
 
@@ -1199,6 +1251,7 @@ Notes:
 
 Notes:
 
+- Here it is again, but with more than half invalid checks.
 - Here more than half of the calls have changed to 2-4 steps.
 - We can also tell how much faster were going by seeing how many more operations we managed to run over 10 minutes.
 - But I think half invalid foreign key checks is pretty weird.
@@ -1251,37 +1304,72 @@ Notes:
 # Methodology
 
 - Short iterations
-- Keep Notes
 - Automate
+- Keep notes
+- Automating keeping notes?
 
 Notes:
 
-- Short iterations
-    - So many mistakes
-- Keep notes
-    - Like a lab notebook
-    - Twitch streamer?
-- Hard to preserve every state of the code
-    - Don't care about commit quality
+- Benchmarking takes forever!
+    - I neglected a lot of client work this month.
+    - You're constantly finding ways you messed up, and your results aren't really valid.
+        - Lots of Youtube talks mention this, so I don't feel too bad.
+    - Short iterations
 - Automate everything
-    - Commit changes every time I run something?
+    - I wound up writing more and more wrapper scripts.
+        - That helped with managing three different Postgres clusters.
+        - The problem with improving your process is that it means changing your process,
+          so it's hard to go back and reconstruct results you got before.
+        - Commit changes every time I run something?
+        - Often you get a script you like, and then the next experiment you want to run breaks the abstraction.
+            - Then you think, "I'll just run maven by hand this once,"
+              and then later you run `./mvnw clean` and blow away those results files.
+
+    - I think the answer is to take meticulous notes.
+        - I had a NOTES files I just typing and pasting into.
+            - Like a lab notebook
+            - It really challenged my feelings of shame.
+            - You almost want a screen recording along with your voice.
+            - Twitch streamer?
+            - Eventually I got pretty good at the note-taking, but . . .
+        - It's hard to preserve every state of the code
+            - Don't care about commit quality
+            - Maybe my script to run a benchmark should just commit all changes right there.
+            - For years I've tried to build good commit hygeine, with messages that explain the purpose and all relevant context, things I considered but didn't do, things for the future, etc. But here you need something like the opposite. Automatic commits. You could always go back and amend them to add summaries, or inject diff-less commits as mileposts.
+
+        - I feel like I've made so many process improvements, I wish I could work on this for another month or two. There is certainly more to do.
 
 
 
 # Next
 
+- More questions
 - More procedures
-- Separate repo from benchbase?
+- How to distribute the benchmark?
 
 Notes:
 
+- There are so many more questions I wanted to ask, but I ran out of time.
+    - For instance how does each FK implementation perform as a referencing row depends on more referenced rows?
+        - I showed an example before where a reference needed two referenced rows to satisfy it.
+        - What if it needs a whole bunch?
+        - Will `range_agg` do worse than the sort node?
+        - Will `EXISTS` get slower because of rescanning the same indexes many times?
+    - I also really wanted to make some graphs comparing CPU and disk utilization between implementations
+        - Even though I don't think they can really differ in disk usage, I want to look.
 - Procedures for other things
-    - A lot of this is done:
+    - There are so many more operations!
+        - Temporal select
+        - Temporal update
+        - Temporal delete
         - Inner joins
         - Outer joins
         - Semijoins
         - Antijoins
-        - Still need to gather results and report on them.
+    - For most of those I've already benchbase procedures.
+        - But I still need to gather results and report on them.
+        - For some of them I have 3 or 4 competing implementations,
+          so I'd like to compare them.
 
 
 

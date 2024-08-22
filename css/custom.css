@@ -18,6 +18,10 @@ pre.code-small > code {
   font-size: 50%;
   line-height: 1.2;
 }
+pre.code-slightly-small > code {
+  font-size: 80%;
+  line-height: 1.2;
+}
 .references {
   text-align: left;
   font-size: 30%;
