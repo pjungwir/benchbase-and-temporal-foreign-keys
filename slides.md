@@ -1383,7 +1383,7 @@ Notes:
 
 #### This talk
 
-- This talk: https://github.com/pjungwir/pdxpug2024-benchbase-and-temporal-foreign-keys
+- This talk: https://github.com/pjungwir/benchbase-and-temporal-foreign-keys
 - Temporal benchmark on my Basebase branch: https://github.com/pjungwir/benchbase/tree/temporal
 - Benchmark notes and tools: https://github.com/pjungwir/benchmarking-temporal-tables
 
