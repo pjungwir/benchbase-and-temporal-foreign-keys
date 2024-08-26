@@ -8,9 +8,9 @@ especially about comparing different implementations for
 
 I gave the talk at pdxpug on 22 August 2024.
 
+You also [read the slides online](https://illuminatedcomputing.com/talks/benchbase-and-temporal-foreign-keys/index.html) (press `s` for speaker notes) or get [all the slides as a PDF](slides.pdf),
+You can also read [the source in markdown](slides.md).
 The slides are built on [reveal.js](https://github.com/hakimel/reveal.js/).
-You also can get [all the slides as a PDF](slides.pdf),
-or [read the slides' Markdown with speaker notes](slides.md).
 
 ## Development
 
